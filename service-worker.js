@@ -11,6 +11,7 @@ onmessage = e => {
 		const {port1, port2} = new MessageChannel();
 		port2.onmessage = api_handler.bind(null, port2);
 		e.source.postMessage({ port: port1 }, [port1]);
+		port2.postMessage("This test from sw.");
 	} else {
 		console.log(e);
 	}
