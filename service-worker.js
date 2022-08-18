@@ -1,6 +1,8 @@
 // This is where we implement the WebDHT API.k
 function api_handler(port, e) {
 	console.log(e);
+
+	port.postMessage("Message Received.");
 }
 
 onmessage = e => {
