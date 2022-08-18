@@ -16,7 +16,7 @@ if ('serviceWorker' in navigator) {
 
 // If we're not the user's network client, then try to switch to their network client
 const params = new URL(window.location).searchParams;
-if (!params.has('proto') && navigator.registerProtocolHandler) {
+if (!params.has('proto') && 'registerProtocolHandler' in navigator) {
 	window.location = `web+webdht:${params.get('args') ?? ''}`;
 	
 	// Wait for a timeout to see if our page get's replaced:
