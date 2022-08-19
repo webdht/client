@@ -1,7 +1,9 @@
 // Check if we're the top page:
 if (window === window.top && navigator.registerProtocolHandler) {
 	// Offer to make this the default network client
-	navigator.registerProtocolHandler('web+webdht', `${window.location.origin}?proto=%s`, 'WebDHT Network Client');
+	document.body.insertAdjacentHTML('beforeend',
+		`<a href="javascript:navigator.registerProtocolHandler('web+webdht', "${window.location.origin}?proto=%s">Set as default network client</a>`
+	);
 }
 
 // Register our listener for messages from the Service worker
