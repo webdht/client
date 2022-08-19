@@ -1,20 +1,18 @@
-// This is where we implement the WebDHT API.
-function api_handler(port, e) {
-	console.log(e);
+oninstall = e => e.waitUntil((async () => {
+	// Download all the things and stuff...?
+})());
 
-	port.postMessage("Message Received.");
+onactivate = e => {
+	console.log(registration.scope);
 }
+const get_id = `${registration.scope}client-id`;
+const get_active = `${registration.scope}client-active`;
+onfetch = e => e.respondWith((async () => {
+	console.log(e);
+	if (e.request.url == get_id) {
+	} else if (e.request.url == get_active) {
 
-onmessage = e => {
-	// TODO: Actually read the message.
-	if (e.data == 'Hi.') {
-		const {port1, port2} = new MessageChannel();
-		port2.onmessage = api_handler.bind(null, port2);
-		e.source.postMessage({ port: port1 }, [port1]);
-		port2.postMessage("This test from sw.");
 	} else {
-		console.log(e);
+		return await fetch(e.request);
 	}
-};
-
-clients.claim();
+})());
