@@ -7,16 +7,6 @@ if (window === window.top && navigator.registerProtocolHandler) {
 	);
 }
 
-// Register our listener for messages from the Service worker
-if ('serviceWorker' in navigator) {
-	navigator.serviceWorker.onmessage = e => {
-		const {port} = e.data;
-		if (port) {
-			window.top.postMessage({ network_client: port }, "*", [port]);
-		}
-	};
-}
-
 // If we're not the user's network client, then try to switch to their network client
 const params = new URL(window.location).searchParams;
 if (!params.has('proto') && 'registerProtocolHandler' in navigator) {
@@ -36,7 +26,12 @@ if ('serviceWorker' in navigator) {
 }
 
 // Create the SharedWorker and send the message port to the top page:
-const worker = new SharedWorker("/shared-worker");
+const worker = new SharedWorker("/shared-worker.mjs", { type: 'module' });
 worker.port.onmessage = e => {
-	
+	console.log(e);
+
+	const { network_client } = e.data;
+	if (network_client) {
+		window.top.postMessage({ network_client }, "*", [network_client]);
+	}
 };
