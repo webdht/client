@@ -1,8 +1,9 @@
 // Check if we're the top page:
 if (window === window.top && navigator.registerProtocolHandler) {
 	// Offer to make this the default network client
+	navigator.registerProtocolHandler('web+dht', `${window.location.origin}/?proto=%s`);
 	document.body.insertAdjacentHTML('beforeend',
-		`<a href="javascript:navigator.registerProtocolHandler('web+webdht', "${window.location.origin}?proto=%s">Set as default network client</a>`
+		`<a href="javascript:navigator.registerProtocolHandler('web+webdht', '${window.location.origin}/?proto=%s');">Set as default network client</a>`
 	);
 }
 
@@ -32,6 +33,10 @@ if (!params.has('proto') && 'registerProtocolHandler' in navigator) {
 // Register (or update the registration of) our service worker:
 if ('serviceWorker' in navigator) {
 	navigator.serviceWorker.register('/service-worker.js'); 
-	const registration = await navigator.serviceWorker.ready;
-	registration.active.postMessage("Hi.");
 }
+
+// Create the SharedWorker and send the message port to the top page:
+const worker = new SharedWorker("/shared-worker");
+worker.port.onmessage = e => {
+	
+};

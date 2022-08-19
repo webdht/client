@@ -16,3 +16,5 @@ onmessage = e => {
 		console.log(e);
 	}
 };
+
+clients.claim();
