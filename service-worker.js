@@ -10,16 +10,12 @@ const get_active = `${registration.scope}client-active`;
 onfetch = e => e.respondWith((async () => {
 	console.log(e);
 	if (e.request.url == get_id) {
-		return new Response({
-			body: JSON.stringify({ client_id: e.clientId })
-		});
+		return new Response(JSON.stringify({ client_id: e.clientId }));
 	} else if (e.request.url == get_active) {
-		return new Response({
-			body: JSON.stringify({
-				active_ids: await client.matchAll({ includeUncontrolled: true, type: 'window' })
-					.map(c => c.clientId)
-			})
-		});
+		const active_ids = await client.matchAll({ includeUncontrolled: true, type: 'window' })
+		.map(c => c.clientId);
+		console.log(active_ids);
+		return new Response(JSON.stringify({ active_ids }));
 	} else {
 		return await fetch(e.request);
 	}
