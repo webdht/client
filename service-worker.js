@@ -12,7 +12,7 @@ onfetch = e => e.respondWith((async () => {
 	if (e.request.url == get_id) {
 		return new Response(JSON.stringify({ client_id: e.clientId }));
 	} else if (e.request.url == get_active) {
-		const active_ids = await client.matchAll({ includeUncontrolled: true, type: 'window' })
+		const active_ids = await clients.matchAll({ includeUncontrolled: true, type: 'window' })
 		.map(c => c.clientId);
 		console.log(active_ids);
 		return new Response(JSON.stringify({ active_ids }));
