@@ -16,7 +16,7 @@ setInterval(async () => {
 	const keys = [...workers.keys()];
 	for (const key of keys) {
 		try {
-			await command(key, {still_alive});
+			await command(key, { still_alive: true });
 		} catch {}
 	}
 }, 30 * 1000);
