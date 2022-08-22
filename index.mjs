@@ -33,7 +33,7 @@ console.log(`Network-client worker (secure context: ${isSecureContext ? 'yes' : 
 const worker = new SharedWorker("/shared-worker.mjs", { type: 'module' });
 
 // Generate a random id for this iframe worker:
-const client_id = btoa((new Uint8Array(16)).reduce((a, v) => a + String.fromCharCode(v), ''));
+const client_id = btoa(crypto.getRandomValues(new Uint8Array(16)).reduce((a, v) => a + String.fromCharCode(v), ''));
 
 // Identify ourself to the SharedWorker so that it can start assigning us Connections:
 worker.port.postMessage({ identify: client_id });
@@ -41,6 +41,7 @@ worker.port.postMessage({ identify: client_id });
 const port = worker.port;
 // Start handling commands from the SharedWorker:
 port.onmessage = e => {
+	console.log(e);
 
 	const { network_client, command_id, still_alive } = e.data;
 	if (network_client) {
