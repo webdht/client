@@ -20,40 +20,38 @@ if (!params.has('proto') && 'registerProtocolHandler' in navigator) {
 	// Looks like the page wasn't replaced, so carry on as a fallback network client.
 }
 
+// Check if we're in a secure context:
+console.log(`Network-client worker (secure context: ${isSecureContext ? 'yes' : 'no'}; cross-origin-isolated: ${crossOriginIsolated ? 'yes' : 'no'})`);
+
 // Register (or update the registration of) our service worker:
-if ('serviceWorker' in navigator) {
-	navigator.serviceWorker.register('/service-worker.js'); 
-}
+// TODO: We'll want a service worker eventually, but we don't need it quite yet.
+// if ('serviceWorker' in navigator) {
+// 	navigator.serviceWorker.register('/service-worker.js'); 
+// }
 
 // Create the SharedWorker and send the message port to the top page:
 const worker = new SharedWorker("/shared-worker.mjs", { type: 'module' });
 
-// Ask the service worker what our client id is:
-let client_id;
-if ('serviceWorker' in navigator) {
-	// Use our client-id as our unique identifier:
-	await navigator.serviceWorker.ready;
-	client_id = (await(await fetch('/client-id')).json()).client_id;
-} else {
-	// Generate a random ID:
-	client_id = btoa((new Uint8Array(16)).reduce((a, v) => a + String.fromCharCode(v), ''));
-
-	// Subscribe to sound-off messages on the broadcast channel, since we don't have a service worker that can tell which pages are active.
-	const broadcast = new BroadcastChannel('sound-off');
-	broadcast.onmessage = e => {
-		broadcast.postMessage(client_id);
-	};
-}
+// Generate a random id for this iframe worker:
+const client_id = btoa((new Uint8Array(16)).reduce((a, v) => a + String.fromCharCode(v), ''));
 
 // Identify ourself to the SharedWorker so that it can start assigning us Connections:
 worker.port.postMessage({ identify: client_id });
 
+const port = worker.port;
 // Start handling commands from the SharedWorker:
-worker.port.onmessage = e => {
-	console.log(e);
+port.onmessage = e => {
 
-	const { network_client } = e.data;
+	const { network_client, command_id, still_alive } = e.data;
 	if (network_client) {
 		window.top.postMessage({ network_client }, "*", [network_client]);
+	}
+
+	if (command_id) {
+		port.postMessage({ command_id, acknowledge: true });
+	}
+
+	if (still_alive) {
+		port.postMessage({ command_id, done: true });
 	}
 };
