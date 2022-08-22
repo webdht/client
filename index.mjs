@@ -27,6 +27,28 @@ if ('serviceWorker' in navigator) {
 
 // Create the SharedWorker and send the message port to the top page:
 const worker = new SharedWorker("/shared-worker.mjs", { type: 'module' });
+
+// Ask the service worker what our client id is:
+let client_id;
+if ('serviceWorker' in navigator) {
+	// Use our client-id as our unique identifier:
+	await navigator.serviceWorker.ready;
+	client_id = (await(await fetch('/client-id')).json()).client_id;
+} else {
+	// Generate a random ID:
+	client_id = btoa((new Uint8Array(16)).reduce((a, v) => a + String.fromCharCode(v), ''));
+
+	// Subscribe to sound-off messages on the broadcast channel, since we don't have a service worker that can tell which pages are active.
+	const broadcast = new BroadcastChannel('sound-off');
+	broadcast.onmessage = e => {
+		broadcast.postMessage(client_id);
+	};
+}
+
+// Identify ourself to the SharedWorker so that it can start assigning us Connections:
+worker.port.postMessage({ identify: client_id });
+
+// Start handling commands from the SharedWorker:
 worker.port.onmessage = e => {
 	console.log(e);
 
