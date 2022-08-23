@@ -1,11 +1,12 @@
-const authorization = "Basic " + btoa(
-	new TextEncoder()
-	.encode(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`)
-	.reduce((a, v) => a + String.fromCharCode(v), '')
-);
+const text_encoder = new TextEncoder();
 
-export async function onRequestPost(_context) {
-	const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Tokens.json`, {
+export async function onRequestPost({ env }) {
+	const authorization = "Basic " + btoa(
+		text_encoder
+		.encode(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`)
+		.reduce((a, v) => a + String.fromCharCode(v), '')
+	);
+	const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Tokens.json`, {
 		method: 'POST',
 		headers: {
 			"Authorization": authorization
