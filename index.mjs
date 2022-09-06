@@ -21,7 +21,11 @@ if (!params.has('proto') && 'registerProtocolHandler' in navigator) {
 }
 
 // Check if we're in a secure context:
-console.log(`Network-client worker (secure context: ${isSecureContext ? 'yes' : 'no'}; cross-origin-isolated: ${crossOriginIsolated ? 'yes' : 'no'})`);
+console.log(`Network-client worker (secure context: ${isSecureContext ? 'yes' : 'no'}; cross-origin-isolated: ${crossOriginIsolated ? 'yes' : 'no'}; has storage access: ${document.hasStorageAccess()})`);
+
+if (!document.hasStorageAccess()) {
+	await document.requestStorageAccess();
+}
 
 // Register (or update the registration of) our service worker:
 // TODO: We'll want a service worker eventually, but we don't need it quite yet.
@@ -37,6 +41,11 @@ const client_id = btoa(crypto.getRandomValues(new Uint8Array(16)).reduce((a, v) 
 
 // Identify ourself to the SharedWorker so that it can start assigning us Connections:
 worker.port.postMessage({ identify: client_id });
+
+// Holder for our assigned RTCPeerConnections
+// What should be the key for this map?  It could just be an index.  Should deduping happen in the 
+const connections = new Map();
+
 
 const port = worker.port;
 // Start handling commands from the SharedWorker:
