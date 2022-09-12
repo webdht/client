@@ -20,8 +20,16 @@ if (!params.has('proto') && 'registerProtocolHandler' in navigator) {
 	// Looks like the page wasn't replaced, so carry on as a fallback network client.
 }
 
+let hasSA;
+if ('hasStorageAccess' in document) {
+	hasSA = await document.hasStorageAccess();
+	if (!hasSA) {
+		hasSA = await document.requestStorageAccess();
+	}
+}
+
 // Check if we're in a secure context:
-console.log(`Network-client worker (secure context: ${isSecureContext ? 'yes' : 'no'}; cross-origin-isolated: ${crossOriginIsolated ? 'yes' : 'no'}; has storage access: ${document.hasStorageAccess()})`);
+console.log(`Network-client worker (secure context: ${isSecureContext ? 'yes' : 'no'}; cross-origin-isolated: ${crossOriginIsolated ? 'yes' : 'no'}; has storage access: ${hasSA ? 'yes' : 'no'})`);
 
 if (!document.hasStorageAccess()) {
 	await document.requestStorageAccess();
