@@ -1,7 +1,7 @@
 // Check if we're the top page:
 if (window === window.top && navigator.registerProtocolHandler) {
 	// Offer to make this the default network client
-	navigator.registerProtocolHandler('web+dht', `${window.location.origin}/?proto=%s`);
+	navigator.registerProtocolHandler('web+webdht', `${window.location.origin}/?proto=%s`);
 	document.body.insertAdjacentHTML('beforeend',
 		`<a href="javascript:navigator.registerProtocolHandler('web+webdht', '${window.location.origin}/?proto=%s');">Set as default network client</a>`
 	);
@@ -24,16 +24,14 @@ let hasSA;
 if ('hasStorageAccess' in document) {
 	hasSA = await document.hasStorageAccess();
 	if (!hasSA) {
-		hasSA = await document.requestStorageAccess();
+		try {
+			hasSA = await document.requestStorageAccess();
+		} catch {}
 	}
 }
 
 // Check if we're in a secure context:
 console.log(`Network-client worker (secure context: ${isSecureContext ? 'yes' : 'no'}; cross-origin-isolated: ${crossOriginIsolated ? 'yes' : 'no'}; has storage access: ${hasSA ? 'yes' : 'no'})`);
-
-if (!document.hasStorageAccess()) {
-	await document.requestStorageAccess();
-}
 
 // Register (or update the registration of) our service worker:
 // TODO: We'll want a service worker eventually, but we don't need it quite yet.
