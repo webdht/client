@@ -6,33 +6,72 @@ const seed_list = [
 ];
 
 // So... I'm not going to check if the certificate has expired: The cert will be valid for 30 days so if the user hasn't closed their browser for 30 days without updating etc. then they deserve to get a broken website.
-let certificate = false;
+let config = false;
 
 function api_handler(e) {
-	console.log(e);
-
-	port.postMessage("Message Received.");
+	console.log("API message", e);
 }
 
-let worker_id = 1;
-const workers = new Map();
-function worker_handler(e) {
+function activate_worker(port) {
+	// 1. Send the worker our rtc config
+	port.postMessage({ config });
 
+	// 2. Send the worker an api message port (for it to pass on to it's parent page)
+	const { port1: network_client, port2 } = new MessageChannel();
+	port2.onmessage = api_handler;
+	port.postMessage({ network_client }, { transfer: [network_client] });
+}
+
+const data_channels = new Set(); // { worker_port, peer_id, channel_id }
+const worker_ports = new Set(); // TODO: enable a ping mechanism to check which workers are still alive.
+async function worker_handler(e) {
+	console.log("Worker Message", e);
+	const { certificate, new_channel } = e.data;
+
+	if (certificate) {
+		const { cert, fingerprint, bytes } = certificate;
+		// TODO: Store our own fingerprint (peer_id) and certificate bytes somewhere.
+
+		// Send our rtcpeerconnection configuration to all our workers:
+		const certificates = [cert];
+		
+		// Retrieve some TURN servers:
+		let iceServers = [];
+		try {
+			const res = await fetch("/request-turn", { method: "POST" });
+			const { ice_servers } = await res.json();
+			iceServers = ice_servers;
+		} catch {}
+
+		config = {
+			certificates, iceServers
+		};
+
+		// Activate all our workers:
+		for (const p of worker_ports) {
+			activate_worker(p);
+		}
+	}
+
+	if (new_channel) {
+		// TODO:
+	}
 }
 
 onconnect = function(e) {
 	console.log('New iframe', e);
 
 	// Handle messages from the worker
+	worker_ports.add(e.source);
 	e.source.onmessage = worker_handler;
 
-	if (certificate === false) {
-		// Ask the new peer to generate a certificate:
-		e.source.postMessage({ generate_certitifcate: true });
+	if (!config) {
+		if (config === false) {
+			// Ask the new peer to generate a certificate:
+			e.source.postMessage({ generate_certificate: true });
+			config = null;
+		}
 	} else {
-		const { port1: network_client, port2 } = new MessageChannel();
-		port2.onmessage = api_handler.bind(null, port2);
-		e.source.onmessage = worker_handler.bind(null, e.source);
-		e.source.postMessage({ network_client }, { transfer: [network_client ]});
+		activate_worker(e.source.port);
 	}
 }

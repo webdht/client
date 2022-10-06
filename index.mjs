@@ -40,34 +40,68 @@ console.log(`Network-client worker (secure context: ${isSecureContext ? 'yes' : 
 // }
 
 // Create the SharedWorker and send the message port to the top page:
-const worker = new SharedWorker("/shared-worker.mjs", { type: 'module' });
-
-// Generate a random id for this iframe worker:
-const client_id = btoa(crypto.getRandomValues(new Uint8Array(16)).reduce((a, v) => a + String.fromCharCode(v), ''));
-
-// Identify ourself to the SharedWorker so that it can start assigning us Connections:
-worker.port.postMessage({ identify: client_id });
+const shared_worker = new SharedWorker("/shared-worker.mjs", { type: 'module' });
 
 // Holder for our assigned RTCPeerConnections
-// What should be the key for this map?  It could just be an index.  Should deduping happen in the 
+// What should be the key for this map?  It could just be an index.
+const port = shared_worker.port;
+port.onmessage = worker;
+
+// The worker / handler stuff:
 const connections = new Map();
-
-
-const port = worker.port;
-// Start handling commands from the SharedWorker:
-port.onmessage = e => {
+let config;
+async function worker(e) {
 	console.log(e);
+	const {network_client, generate_certificate, connect} = e.data;
 
-	const { network_client, command_id, still_alive } = e.data;
+	// Pass a network_client API MessagePort to the root page:
 	if (network_client) {
 		window.top.postMessage({ network_client }, "*", [network_client]);
 	}
 
-	if (command_id) {
-		port.postMessage({ command_id, acknowledge: true });
-	}
+	// Handle Generating an RTCCertificate
+	if (generate_certificate) {
+		// Generate the certificate
+		const cert = await RTCPeerConnection.generateCertificate({ name: "ECDSA", namedCurve: "P-256" /* TODO: expiration */ });
 
-	if (still_alive) {
-		port.postMessage({ command_id, done: true });
+		// Use a temporary connection to get the fingerprint:
+		const temp = new RTCPeerConnection({
+			certificates: [cert]
+		});
+		const _unused = temp.createDataChannel('unused');
+		await temp.setLocalDescription();
+
+		const fingerprint = /a=fingerprint:(.+)/.exec(temp.localDescription.sdp)[1];
+		console.assert(fingerprint.startsWith('sha-256 '), "Sadge");
+
+		// If available, use a second temporary connection to extract the certificate's raw bytes: (Should work in everything except Firefox)
+		let bytes = false;
+		if (temp.sctp !== undefined) {
+			try {
+				const temp2 = new RTCPeerConnection();
+				temp.onicecandidate = ({ candidate }) => temp2.addIceCandidate(candidate);
+				temp2.onicecandidate = ({ candidate }) => temp.addIceCandidate(candidate);
+				await temp2.setRemoteDescription(temp.localDescription);
+				await temp2.setLocalDescription();
+				const prom = new Promise((res, rej) => {
+					const dtls = temp2.sctp.transport;
+					dtls.onerror = rej;
+					dtls.onstatechange = () => {
+						const dtls_state = dtls.state;
+						if (dtls_state == 'closed' || dtls_state == 'failed') rej();
+						if (dtls_state == 'connected') {
+							res(dtls.getRemoteCertificates())
+						}
+					};
+				});
+				await temp.setRemoteDescription(temp2.localDescription);
+				bytes = await prom;
+			} catch(e) { console.warn("Failed to get the certificate bytes", e); }
+		}
+
+		// Submit the certificate to our shared worker:
+		port.postMessage({ certificate: {
+			cert, fingerprint, bytes
+		}});
 	}
-};
+}
