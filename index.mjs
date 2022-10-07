@@ -78,8 +78,8 @@ async function worker(e) {
 		// If available, use a second temporary connection to extract the certificate's raw bytes: (Should work in everything except Firefox)
 		let bytes = false;
 		if (temp.sctp !== undefined) {
+			const temp2 = new RTCPeerConnection();
 			try {
-				const temp2 = new RTCPeerConnection();
 				temp.onicecandidate = ({ candidate }) => temp2.addIceCandidate(candidate);
 				temp2.onicecandidate = ({ candidate }) => temp.addIceCandidate(candidate);
 				await temp2.setRemoteDescription(temp.localDescription);
@@ -98,7 +98,11 @@ async function worker(e) {
 				await temp.setRemoteDescription(temp2.localDescription);
 				bytes = await prom;
 			} catch(e) { console.warn("Failed to get the certificate bytes", e); }
+			finally {
+				temp2.close();
+			}
 		}
+		temp.close();
 
 		// Submit the certificate to our shared worker:
 		port.postMessage({ certificate: {
