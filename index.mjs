@@ -131,15 +131,32 @@ function activate_datachannel(dc, peer_fingerprint) {
 		function event_handler(e) {
 			// TODO: Handle transfering arrayBuffers or blobs
 			const transfer = e.type == 'message' ? [e.data] : [];
-			port.postMessage({ datachannel: {
-				peer_fingerprint,
-				channel_id: dc.id,
-				...e
-			}}, { transfer });
+			const datachannel = {
+				peer_fingerprint, channel_id: dc.id,
+				type: e.type,
+				error: e.error ? {...e.error} : undefined,
+				data: e.data,
+				origin: e.origin,
+				lastEventId: e.lastEventId,
+				source: e.source,
+				ports: e.ports,
+				...e // For events this just transfers the isTrusted, but for custom events, it can include other data:
+			}
+			console.log(e, Object.getOwnPropertyNames(e));
+			port.postMessage({ datachannel }, { transfer });
 		}
 		event_handler({
 			type: 'created',
-			...dc
+			config: {
+				bufferedAmountLowThreshold: dc.bufferedAmountLowThreshold,
+				label: dc.label,
+				maxPacketLifeTime: dc.maxPacketLifeTime,
+				maxRetransmits: dc.maxRetransmits,
+				negotiated: dc.negotiated,
+				ordered: dc.ordered,
+				protocol: dc.protocol,
+				readyState: dc.readyState
+			}
 		});
 		dc.onopen = dc.onclose = dc.onclosing = dc.onerror = dc.onmessage = dc.bufferedamountlow = event_handler;
 		port.addEventListener('message', e => {

@@ -39,7 +39,7 @@ const data_channels = new Set(); // { worker_port, peer_fingerprint, channel_id 
 const worker_ports = new Set(); // TODO: enable a ping mechanism to check which workers are still alive.
 async function worker_handler(e) {
 	console.log("Worker Message", e.data);
-	const { certificate, new_channel } = e.data;
+	const { certificate, datachannel_raw, datachannel } = e.data;
 
 	if (certificate) {
 		const { cert, fingerprint, bytes } = certificate;
@@ -66,8 +66,84 @@ async function worker_handler(e) {
 		}
 	}
 
-	if (new_channel) {
-		// TODO:
+	// Handle new datachannels:
+	if (datachannel_raw) {
+		data_channels.add(datachannel_raw);
+		console.log('datachannel', datachannel_raw);
+	}
+	if (datachannel && datachannel.type == 'created') {
+		const dc = new ProxiedChannel(e.target, datachannel);
+		data_channels.add(dc);
+		console.log('datachannel', dc);
+	}
+}
+
+class ProxiedChannel extends EventTarget {
+	constructor(worker_port, { peer_fingerprint, channel_id }) {
+		super();
+		this.worker_port = worker_port;
+		this.peer_fingerprint = peer_fingerprint;
+		this.channel_id = channel_id;
+		this.abort_controller = new AbortController();
+
+		// Add an event listener on the worker port to proxy messages to this object:
+		worker_port.addEventListener('message', e => {
+			const { datachannel } = e.data;
+			if (datachannel && datachannel.peer_fingerprint == this.peer_fingerprint && datachannel.channel_id == this.channel_id) {
+				// This message is for us:
+				if (datachannel.type) {
+					// This must be an event
+					const event = new CustomEvent(datachannel.type);
+					delete datachannel.type;
+					delete datachannel.isTrusted;
+					delete datachannel.peer_fingerprint,
+					delete datachannel.channel_id;
+					for (const key in datachannel) {
+						event[key] = datachannel[key];
+					}
+					console.log("Proxied Event: ", event);
+					this.dispatchEvent(event);
+				} else {
+					// What kind of message is this?
+				}
+			}
+		}, { signal: this.abort_controller.signal });
+	}
+	send(data) {
+		const transfer = (typeof data !== 'string') ? [data] : []
+		this.post_message({ send: data }, transfer);
+	}
+	close() {
+		this.post_message({ close: true });
+		this.abort_controller.abort();
+	}
+	post_message(data, transfer = []) {
+		// Handle when the worker has died.
+		if (!worker_ports.has(this.worker_port)) {
+			// Trigger a close:
+			this.dispatchEvent(new CustomEvent('close'));
+			this.abort_controller.abort();
+			return;
+		}
+
+		// Post the data with our datachannel identification.
+		this.worker_port.postMessage({ datachannel: {
+			peer_fingerprint: this.peer_fingerprint,
+			channel_id: this.channel_id,
+			...data
+		}}, { transfer })
+	}
+	set bufferedAmountLowThreshold(bufferedAmountLowThreshold) {
+		this.post_message({ bufferedAmountLowThreshold });
+	}
+	set binaryType(binaryType) {
+		this.post_message({ binaryType });
+	}
+	get bufferedAmount() {
+		throw new Error("Sorry, bufferedAmount doesn't work on ProxiedChannel");
+	}
+	get readyState() {
+		throw new Error("Sorry, readyState doesn't work on ProxiedChannel");
 	}
 }
 
