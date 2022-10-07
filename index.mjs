@@ -25,7 +25,9 @@ if ('hasStorageAccess' in document) {
 	hasSA = await document.hasStorageAccess();
 	if (!hasSA) {
 		try {
-			hasSA = await document.requestStorageAccess();
+			await document.requestStorageAccess();
+			// If requestStorageAccess doesn't reject, then storage was granted:
+			hasSA = true;
 		} catch {}
 	}
 }
