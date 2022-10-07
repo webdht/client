@@ -1,3 +1,9 @@
+/**
+ * While this file can be loaded as an external script from https://client.webdht.net/webdht.mjs, the prefered method
+ * is for you to include it in with your website's code.  This way you can cache it using your service worker and
+ * reduce your site's dependence on 3rd parties.
+ */
+
 // Listen for the message port from the network client
 const nc_port = new Promise(resolve => {
 	function on_message(e) {
