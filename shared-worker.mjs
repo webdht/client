@@ -161,6 +161,6 @@ onconnect = function(e) {
 			config = null;
 		}
 	} else {
-		activate_worker(e.source.port);
+		activate_worker(e.source);
 	}
 }

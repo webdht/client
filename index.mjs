@@ -142,7 +142,6 @@ function activate_datachannel(dc, peer_fingerprint) {
 				ports: e.ports,
 				...e // For events this just transfers the isTrusted, but for custom events, it can include other data:
 			}
-			console.log(e, Object.getOwnPropertyNames(e));
 			port.postMessage({ datachannel }, { transfer });
 		}
 		event_handler({
