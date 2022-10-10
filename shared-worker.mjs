@@ -1,16 +1,20 @@
+import * as hyper_node from "/dist/hyper_node.js";
+
+await hyper_node.init();
+
 console.log("Initializing the network-client shared worker");
 
 // TODO: Persist the seed_list and update it as we discover new server peers.
-const seed_list = [
-	{	fingerprint: "sha-256 C4:33:E7:EA:2B:DD:7A:28:F2:8B:E0:C9:E8:42:95:72:04:CB:67:89:AA:E5:CC:41:68:20:0F:D1:7E:46:D4:BA",
-		candidates: [
-			"0 1 udp 2113937151 localhost 4666 typ host", // TODO: Once we have servers running, replace localhost with seed1.webdht.net
-			"1 1 tcp 2113937151 localhost 4666 typ host tcptype passive",
-		].join('\n'),
-		local_pwd: "vK426P4rn7unBHGdnyVz3iXg"
-	}
-	// TODO: Fill with Server PeerEntries
-];
+// const seed_list = [
+// 	{	fingerprint: "sha-256 C4:33:E7:EA:2B:DD:7A:28:F2:8B:E0:C9:E8:42:95:72:04:CB:67:89:AA:E5:CC:41:68:20:0F:D1:7E:46:D4:BA",
+// 		candidates: [
+// 			"0 1 udp 2113937151 localhost 4666 typ host", // TODO: Once we have servers running, replace localhost with seed1.webdht.net
+// 			"1 1 tcp 2113937151 localhost 4666 typ host tcptype passive",
+// 		].join('\n'),
+// 		local_pwd: "vK426P4rn7unBHGdnyVz3iXg"
+// 	}
+// 	// TODO: Fill with Server PeerEntries
+// ];
 
 // So... I'm not going to check if the certificate has expired: The cert will be valid for 30 days so if the user hasn't closed their browser for 30 days without updating etc. then they deserve to get a broken website.
 let config = false;
@@ -29,14 +33,61 @@ function activate_worker(port) {
 	port.postMessage({ network_client }, { transfer: [network_client] });
 
 	// 3. Kickoff bootstrapping?
-	while (seed_list.length) {
-		const connect = seed_list.shift();
-		port.postMessage({ connect });
-	}
+	// while (seed_list.length) {
+	// 	const connect = seed_list.shift();
+	// 	port.postMessage({ connect });
+	// }
 }
 
 const data_channels = new Set(); // { worker_port, peer_fingerprint, channel_id }
 const worker_ports = new Set(); // TODO: enable a ping mechanism to check which workers are still alive.
+const connections = new Map(); // Fingerprint -> worker port TODO: Add a second map for ufrags so that we can eventually support routing partial connections.
+
+// Setup our hypernode implementation:
+hyper_node.set_js_ctx({
+	request_connect(connect) {
+		let worker = connections.get(connect.fingerprint);
+		if (!worker || !worker_ports.has(worker)) {
+			// Pick a random iframe and assign it to host this connection:
+			const all_workers = [...worker_ports];
+			worker = all_workers[Math.trunc(all_workers.length * Math.random())];
+			connections.set(connect.fingerprint, worker);
+		}
+		if (worker) {
+			worker.postMessage({ connect });
+		}
+	},
+	send_dc_msg(pf, chid, msg, transfer = []) {
+		// Find the worker for this dc:
+		for (const {worker_port, peer_fingerprint, channel_id} of data_channels) {
+			if (peer_fingerprint == pf && channel_id == chid) {
+				if (worker_ports.has(worker_port)) {
+					worker_port.postMessage({
+						datachannel: {
+							peer_fingerprint,
+							channel_id, 
+							...msg
+						}
+					}, { transfer });
+				}
+			}
+		}
+	},
+	send_text(peer_fingerprint, channel_id, msg) {
+		this.send_dc_msg(peer_fingerprint, channel_id, { send: msg });
+	},
+	send_binary(peer_fingerprint, channel_id, msg) {
+		this.send_dc_msg(peer_fingerprint, channel_id, { send: msg }, [msg]);
+	},
+	unuse_channel(peer_fingerprint, channel_id) {
+		this.send_dc_msg(peer_fingerprint, channel_id, { unused: true })
+	},
+	request_dc(peer_fingerprint, channel_id, config) {
+		this.send_dc_msg(peer_fingerprint, channel_id, { create: config })
+	}
+});
+
+// Handle messages from the iframe
 async function worker_handler(e) {
 	console.log("Worker Message", e.data);
 	const { certificate, datachannel_raw, datachannel } = e.data;
@@ -146,6 +197,7 @@ class ProxiedChannel extends EventTarget {
 		throw new Error("Sorry, readyState doesn't work on ProxiedChannel");
 	}
 }
+
 
 onconnect = function(e) {
 	console.log('New iframe', e);

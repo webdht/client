@@ -124,6 +124,8 @@ const connections = new Set(); // RTCPeerConnection
 function activate_datachannel(dc, peer_fingerprint) {
 	dc.peer_fingerprint = peer_fingerprint; // TODO: Add certificate bytes?
 	try {
+		// TODO: With this code as it is, it's actually easier to not send the the datachannel to the worker.  I'm sure that down the line that will make more sense, but for now I'm just disabling the Safari DC transfer:
+		throw new Error("DC tranfer disabled.");
 		// Safari supports transfering datachannels to workers:
 		port.postMessage({ datachannel_raw: dc }, { transfer: [dc] });
 	} catch {
@@ -274,6 +276,24 @@ class PeerConnection extends RTCPeerConnection {
 		const remote_fingerprint = this.remote_connect_message.fingerprint;
 		activate_datachannel(dc, remote_fingerprint);
 		this.ondatachannel = ({ channel }) => activate_datachannel(channel, remote_fingerprint);
+		// We can also add a listener to the worker port that will create datachannels on this peer_connection:
+		port.addEventListener('message', e => {
+			const { datachannel } = e.data;
+			if (datachannel) {
+				const { peer_fingerprint, channel_id: id, create } = datachannel;
+				if (peer_fingerprint == remote_fingerprint) {
+					const dc = this.createDataChannel(create.label, {
+						ordered: create.ordered,
+						maxPacketLifeTime: create.max_packet_life_time,
+						maxRetransmits: create.max_retransmits,
+						protocol: create.protocol,
+						negotiated: true,
+						id,
+					});
+					activate_datachannel(dc, remote_fingerprint);
+				}
+			}
+		});
 
 		// Make sure we have an ice-ufrag and ice-pwd in the remote connect message:
 		function gen_random_ice_str(byte_len) {
