@@ -1,6 +1,9 @@
-import * as hyper_node from "/dist/hyper_node.js";
+import * as hyper_node from "/dist/browser_peer.js";
 
-await hyper_node.init();
+// Load the hyper
+let input = await fetch("/dist/browser_peer_bg.wasm");
+input = await input.arrayBuffer();
+await hyper_node.default(input);
 
 console.log("Initializing the network-client shared worker");
 
