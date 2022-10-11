@@ -35,12 +35,6 @@ if ('hasStorageAccess' in document) {
 // Check if we're in a secure context:
 console.log(`Network-client worker (secure context: ${isSecureContext ? 'yes' : 'no'}; cross-origin-isolated: ${crossOriginIsolated ? 'yes' : 'no'}; has storage access: ${hasSA ? 'yes' : 'no'})`);
 
-// Register (or update the registration of) our service worker:
-// TODO: We'll want a service worker eventually, but we don't need it quite yet.
-// if ('serviceWorker' in navigator) {
-// 	navigator.serviceWorker.register('/service-worker.js'); 
-// }
-
 // Create the SharedWorker and send the message port to the top page:
 const shared_worker = new SharedWorker("/shared-worker.mjs", { type: 'module' });
 
@@ -121,66 +115,63 @@ async function worker(e) {
 
 // Connection signalling:
 const connections = new Set(); // RTCPeerConnection
-function activate_datachannel(dc, peer_fingerprint) {
-	dc.peer_fingerprint = peer_fingerprint; // TODO: Add certificate bytes?
-	try {
-		// TODO: With this code as it is, it's actually easier to not send the the datachannel to the worker.  I'm sure that down the line that will make more sense, but for now I'm just disabling the Safari DC transfer:
-		throw new Error("DC tranfer disabled.");
-		// Safari supports transfering datachannels to workers:
-		port.postMessage({ datachannel_raw: dc }, { transfer: [dc] });
-	} catch {
-		// For everybody else, we just have to do message passing:
-		function event_handler(e) {
-			// TODO: Handle transfering arrayBuffers or blobs
-			const transfer = e.type == 'message' ? [e.data] : [];
-			const datachannel = {
-				peer_fingerprint, channel_id: dc.id,
-				type: e.type,
-				error: e.error ? {...e.error} : undefined,
-				data: e.data,
-				origin: e.origin,
-				lastEventId: e.lastEventId,
-				source: e.source,
-				ports: e.ports,
-				...e // For events this just transfers the isTrusted, but for custom events, it can include other data:
-			}
-			port.postMessage({ datachannel }, { transfer });
+function activate_datachannel(dc, peer_fingerprint, connection) {
+	// For everybody else, we just have to do message passing:
+	function event_handler(e) {
+		// Handle transfering arrayBuffers or blobs
+		const transfer = e.type == 'message' ? [e.data] : [];
+		if (dc.id !== 0 && (e.type == 'message' || e.type == 'open')) {
+			connection.users.add(dc.id);
 		}
-		event_handler({
-			type: 'created',
-			config: {
-				bufferedAmountLowThreshold: dc.bufferedAmountLowThreshold,
-				label: dc.label,
-				maxPacketLifeTime: dc.maxPacketLifeTime,
-				maxRetransmits: dc.maxRetransmits,
-				negotiated: dc.negotiated,
-				ordered: dc.ordered,
-				protocol: dc.protocol,
-				readyState: dc.readyState
-			}
-		});
-		dc.onopen = dc.onclose = dc.onclosing = dc.onerror = dc.onmessage = dc.bufferedamountlow = event_handler;
-		port.addEventListener('message', e => {
-			const { datachannel } = e.data;
-			if (datachannel) {
-				const { peer_fingerprint: pf, channel_id, send, close, bufferedAmountLowThreshold, binaryType } = datachannel;
-				if (peer_fingerprint == pf && channel_id == dc.id) {
-					if (send) {
-						dc.send(send);
-					}
-					if (close) {
-						dc.close();
-					}
-					if (bufferedAmountLowThreshold) {
-						dc.bufferedAmountLowThreshold = bufferedAmountLowThreshold;
-					}
-					if (binaryType) {
-						dc.binaryType = binaryType;
+		const datachannel = {
+			peer_fingerprint, channel_id: dc.id,
+			type: e.type,
+			error: e.error ? {...e.error} : undefined,
+			data: e.data,
+			...e // For events this just transfers the isTrusted, but for custom events, it can include other data:
+		}
+		port.postMessage({ datachannel }, { transfer });
+	}
+	event_handler({
+		type: 'created',
+		config: {
+			bufferedAmountLowThreshold: dc.bufferedAmountLowThreshold,
+			label: dc.label,
+			maxPacketLifeTime: dc.maxPacketLifeTime,
+			maxRetransmits: dc.maxRetransmits,
+			negotiated: dc.negotiated,
+			ordered: dc.ordered,
+			protocol: dc.protocol,
+			readyState: dc.readyState
+		}
+	});
+	dc.onopen = dc.onclose = dc.onclosing = dc.onerror = dc.onmessage = dc.bufferedamountlow = event_handler;
+	port.addEventListener('message', e => {
+		const { datachannel } = e.data;
+		if (datachannel) {
+			const { peer_fingerprint: pf, channel_id, send, close, bufferedAmountLowThreshold, binaryType, unused } = datachannel;
+			if (peer_fingerprint == pf && channel_id == dc.id) {
+				if (unused) {
+					connection.users.delete(dc.id);
+					if (connection.users.size == 0) {
+						connection.grim_reaper();
 					}
 				}
+				if (send) {
+					dc.send(send);
+				}
+				if (close) {
+					dc.close();
+				}
+				if (bufferedAmountLowThreshold) {
+					dc.bufferedAmountLowThreshold = bufferedAmountLowThreshold;
+				}
+				if (binaryType) {
+					dc.binaryType = binaryType;
+				}
 			}
-		})
-	}
+		}
+	})
 }
 class PeerConnection extends RTCPeerConnection {
 	constructor(connect_message = {}, { enable_munging = false } = {}) {
@@ -188,6 +179,7 @@ class PeerConnection extends RTCPeerConnection {
 
 		this.remote_connect_message = connect_message;
 		this.local_connect_message = {};
+		this.users = new Set();
 
 		// Enable_munging means that this connection will offer a munged connect message to the remote peer.
 		// We'll still try to respond to a munged connect message if possible, even if enable_munging is false.
@@ -197,7 +189,19 @@ class PeerConnection extends RTCPeerConnection {
 		// TODO: Add a finally to the signalling machine that cleans up the PeerConnection?
 	}
 	handle_connect_message(connect_message) {
+		// Apply the connect message to the remote_connect_message
+		if (this.remote_connect_message.local_fingerprint && this.remote_connect_message.local_fingerprint != connect_message.local_fingerprint) {
+			console.warn("Mis-routed connect message:", connect_message);
+			return;
+		}
+		Object.assign(this.remote_connect_message, connect_message);
 
+		// Step the Signalling machine if it's waiting on a connect message:
+		const res_func = this.need_connect;
+		this.need_connect = false;
+		if (typeof res_func == 'function') {
+			res_func();
+		}
 	}
 	gathering_complete() {
 		return new Promise(res => {
@@ -211,7 +215,25 @@ class PeerConnection extends RTCPeerConnection {
 			on_state();
 		});
 	}
+	grim_reaper() {
+		if (!this.reaper_handle && this.signalingState !== 'closed') {
+			// The grim reaper waits 10sec and if at that time the connection doesn't have any users, it reaps the RTCPeerConnection
+			this.reaper_handle = setTimeout(() => {
+				if (this.users.size == 0) {
+					connections.delete(this);
+					this.close();
+					console.log("The Grim Reaper reaped", this.remote_connect_message.local_fingerprint);
+				} else {
+					console.log("The Grim Reaper spared", this.remote_connect_message.local_fingerprint);
+				}
+				this.reaper_handle = false;
+			}, 10 * 1000);
+		}
+	}
 	async signalling() {
+		// To make sure connections can't get lost in signalling hell, we notify the reaper.
+		this.grim_reaper();
+
 		// Create the common / id0 datachannel:
 		const dc = this.createDataChannel('common', {
 			ordered: true,
@@ -250,7 +272,6 @@ class PeerConnection extends RTCPeerConnection {
 		this.local_connect_message.candidates = candidates;
 
 		// Cool, local description is finalized.  Do we need to send a connect message?
-		const rc = this.remote_connect_message;
 		const peer_is_public = this.remote_connect_message.local_fingerprint &&
 			this.remote_connect_message.candidates &&
 			this.remote_connect_message.local_pwd &&
@@ -274,8 +295,8 @@ class PeerConnection extends RTCPeerConnection {
 
 		// At this point we know the fingerprint for the remote peer so we can setup our listeners on the dc
 		const remote_fingerprint = this.remote_connect_message.local_fingerprint;
-		activate_datachannel(dc, remote_fingerprint);
-		this.ondatachannel = ({ channel }) => activate_datachannel(channel, remote_fingerprint);
+		activate_datachannel(dc, remote_fingerprint, this);
+		this.ondatachannel = ({ channel }) => activate_datachannel(channel, remote_fingerprint, this);
 		// We can also add a listener to the worker port that will create datachannels on this peer_connection:
 		port.addEventListener('message', e => {
 			const { datachannel } = e.data;
@@ -295,7 +316,7 @@ class PeerConnection extends RTCPeerConnection {
 							config.maxRetransmits = create.maxRetransmits;
 						}
 						const dc = this.createDataChannel(create.label, config);
-						activate_datachannel(dc, remote_fingerprint);
+						activate_datachannel(dc, remote_fingerprint, this);
 					}
 				}
 			}
