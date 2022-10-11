@@ -222,7 +222,7 @@ class PeerConnection extends RTCPeerConnection {
 
 		// Do we need to mung our local offer?
 		let munging_succeeded = false;
-		if (typeof this.remote_connect_message.remote_ufrag == 'string' && typeof this.remote_connect_message.remote_pwd == 'string') {
+		if (this.remote_connect_message.remote_ufrag && this.remote_connect_message.remote_pwd) {
 			// Try to mung our local ice credentials:
 			try {
 				const offer = await this.createOffer();
@@ -251,21 +251,21 @@ class PeerConnection extends RTCPeerConnection {
 
 		// Cool, local description is finalized.  Do we need to send a connect message?
 		const rc = this.remote_connect_message;
-		const peer_is_public = typeof this.remote_connect_message.fingerprint === 'string' &&
-			typeof this.remote_connect_message.candidates == 'string' &&
-			typeof this.remote_connect_message.local_pwd == 'string' &&
-			typeof this.remote_connect_message.local_ufrag == 'undefined'; // Public peers have a password but no ufrag.
+		const peer_is_public = this.remote_connect_message.local_fingerprint &&
+			this.remote_connect_message.candidates &&
+			this.remote_connect_message.local_pwd &&
+			!this.remote_connect_message.local_ufrag; // Public peers have a password but no ufrag.
 		
-		const need_send_connect = !peer_is_public && (typeof this.remote_connect_message.fingerprint !== 'string' || !munging_succeeded);
+		const need_send_connect = !peer_is_public && (!this.remote_connect_message.fingerprint || !munging_succeeded);
 		if (need_send_connect) {
 			port.postMessage({ connect: this.local_connect_message });
 		}
 
 		// In order to set the remote description we need to know the remote peer's fingerprint, and to either have munging enabled or to have both the remote peer's ufrag and pwd.
-		const can_remote = () => peer_is_public || typeof this.remote_connect_message.fingerprint == 'string' && (
+		const can_remote = () => peer_is_public || this.remote_connect_message.local_fingerprint && (
 			this.options.enable_munging || (
-				typeof this.remote_connect_message.local_ufrag == 'string' &&
-				typeof this.remote_connect_message.local_pwd == 'string'
+				this.remote_connect_message.local_ufrag &&
+				this.remote_connect_message.local_pwd
 			)
 		);
 		while (!can_remote()) {
@@ -273,7 +273,7 @@ class PeerConnection extends RTCPeerConnection {
 		}
 
 		// At this point we know the fingerprint for the remote peer so we can setup our listeners on the dc
-		const remote_fingerprint = this.remote_connect_message.fingerprint;
+		const remote_fingerprint = this.remote_connect_message.local_fingerprint;
 		activate_datachannel(dc, remote_fingerprint);
 		this.ondatachannel = ({ channel }) => activate_datachannel(channel, remote_fingerprint);
 		// We can also add a listener to the worker port that will create datachannels on this peer_connection:
@@ -282,15 +282,21 @@ class PeerConnection extends RTCPeerConnection {
 			if (datachannel) {
 				const { peer_fingerprint, channel_id: id, create } = datachannel;
 				if (peer_fingerprint == remote_fingerprint) {
-					const dc = this.createDataChannel(create.label, {
-						ordered: create.ordered,
-						maxPacketLifeTime: create.max_packet_life_time,
-						maxRetransmits: create.max_retransmits,
-						protocol: create.protocol,
-						negotiated: true,
-						id,
-					});
-					activate_datachannel(dc, remote_fingerprint);
+					if (create) {
+						const config = {
+							ordered: create.ordered,
+							protocol: create.protocol,
+							negotiated: true,
+							id,
+						};
+						if (create.maxPacketLifeTime) {
+							config.maxPacketLifeTime = create.maxPacketLifeTime;
+						} else if (create.maxRetransmits) {
+							config.maxRetransmits = create.maxRetransmits;
+						}
+						const dc = this.createDataChannel(create.label, config);
+						activate_datachannel(dc, remote_fingerprint);
+					}
 				}
 			}
 		});
@@ -303,8 +309,12 @@ class PeerConnection extends RTCPeerConnection {
 			const byte_str = bytes.reduce((accum, v) => accum+String.fromCharCode(v), '');
 			return btoa(byte_str).replaceAll('=', '');
 		}
-		this.remote_connect_message.local_ufrag ??= gen_random_ice_str(3);
-		this.remote_connect_message.local_pwd ??= gen_random_ice_str(16);
+		if (!this.remote_connect_message.local_ufrag) {
+			this.remote_connect_message.local_ufrag = gen_random_ice_str(3);
+		}
+		if (!this.remote_connect_message.local_pwd) {
+			this.remote_connect_message.local_pwd = gen_random_ice_str(16);
+		}
 
 		// Apply the remoteDescription
 		let remote_sdp = `v=0
@@ -315,7 +325,7 @@ m=application 9 UDP/DTLS/SCTP webrtc-datachannel
 c=IN IP4 0.0.0.0
 a=sctp-port:5000
 `;
-		for (const fingerprint of this.remote_connect_message.fingerprint.split('\n')) {
+		for (const fingerprint of this.remote_connect_message.local_fingerprint.split('\n')) {
 			remote_sdp += `a=fingerprint:${fingerprint}\n`;
 		}
 		for (const candidate of this.remote_connect_message.candidates.split('\n')) {

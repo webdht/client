@@ -1,10 +1,5 @@
 import * as hyper_node from "/dist/browser_peer.js";
 
-// Load the hyper
-let input = await fetch("/dist/browser_peer_bg.wasm");
-input = await input.arrayBuffer();
-await hyper_node.default(input);
-
 console.log("Initializing the network-client shared worker");
 
 // TODO: Persist the seed_list and update it as we discover new server peers.
@@ -47,48 +42,64 @@ const worker_ports = new Set(); // TODO: enable a ping mechanism to check which 
 const connections = new Map(); // Fingerprint -> worker port TODO: Add a second map for ufrags so that we can eventually support routing partial connections.
 
 // Setup our hypernode implementation:
-hyper_node.set_js_ctx({
-	request_connect(connect) {
-		let worker = connections.get(connect.fingerprint);
-		if (!worker || !worker_ports.has(worker)) {
-			// Pick a random iframe and assign it to host this connection:
-			const all_workers = [...worker_ports];
-			worker = all_workers[Math.trunc(all_workers.length * Math.random())];
-			connections.set(connect.fingerprint, worker);
-		}
-		if (worker) {
-			worker.postMessage({ connect });
-		}
-	},
-	send_dc_msg(pf, chid, msg, transfer = []) {
-		// Find the worker for this dc:
-		for (const {worker_port, peer_fingerprint, channel_id} of data_channels) {
-			if (peer_fingerprint == pf && channel_id == chid) {
-				if (worker_ports.has(worker_port)) {
-					worker_port.postMessage({
-						datachannel: {
-							peer_fingerprint,
-							channel_id, 
-							...msg
-						}
-					}, { transfer });
-				}
+async function start_hyper_node() {
+	// Load the hyper node
+	let input = await fetch("/dist/browser_peer_bg.wasm");
+	input = await input.arrayBuffer();
+	await hyper_node.default(input);
+
+	// Give the hyper-node a handle to this context
+	hyper_node.set_js_ctx({
+		request_connect(connect) {
+			let worker = connections.get(connect.local_fingerprint);
+			if (!worker || !worker_ports.has(worker)) {
+				// Pick a random iframe and assign it to host this connection:
+				const all_workers = [...worker_ports];
+				worker = all_workers[Math.trunc(all_workers.length * Math.random())];
+				connections.set(connect.local_fingerprint, worker);
 			}
+			if (worker) {
+				// connect is a wasm-bindgen thing with a bunch of getters, but we need a non-getter object that we can post:
+				const concrete = {
+					local_fingerprint: connect.local_fingerprint,
+					candidates: connect.candidates,
+					local_pwd: connect.local_pwd,
+					local_ufrag: connect.local_ufrag,
+					remote_fingerprint: connect.remote_fingerprint,
+					remote_ufrag: connect.remote_ufrag,
+					remote_pwd: connect.remote_pwd
+				};
+				worker.postMessage({ connect: concrete });
+			}
+		},
+		send_dc_msg(peer_fingerprint, channel_id, msg, transfer = []) {
+			// Find the worker for this dc:
+			let worker = connections.get(peer_fingerprint);
+			if (worker_ports.has(worker)) {
+				worker.postMessage({
+					datachannel: {
+						peer_fingerprint,
+						channel_id,
+						...msg
+					}
+				}, { transfer })
+			}
+		},
+		send_text(peer_fingerprint, channel_id, msg) {
+			this.send_dc_msg(peer_fingerprint, channel_id, { send: msg });
+		},
+		send_binary(peer_fingerprint, channel_id, msg) {
+			this.send_dc_msg(peer_fingerprint, channel_id, { send: msg }, [msg]);
+		},
+		unuse_channel(peer_fingerprint, channel_id) {
+			this.send_dc_msg(peer_fingerprint, channel_id, { unused: true })
+		},
+		request_dc(peer_fingerprint, channel_id, config) {
+			const concrete = { label: config.label, ordered: config.ordered, maxPacketLifeTime: config.max_packet_life_time, maxRetransmits: config.max_retransmits, protocol: config.protocol}
+			this.send_dc_msg(peer_fingerprint, channel_id, { create: concrete })
 		}
-	},
-	send_text(peer_fingerprint, channel_id, msg) {
-		this.send_dc_msg(peer_fingerprint, channel_id, { send: msg });
-	},
-	send_binary(peer_fingerprint, channel_id, msg) {
-		this.send_dc_msg(peer_fingerprint, channel_id, { send: msg }, [msg]);
-	},
-	unuse_channel(peer_fingerprint, channel_id) {
-		this.send_dc_msg(peer_fingerprint, channel_id, { unused: true })
-	},
-	request_dc(peer_fingerprint, channel_id, config) {
-		this.send_dc_msg(peer_fingerprint, channel_id, { create: config })
-	}
-});
+	});
+}
 
 // Handle messages from the iframe
 async function worker_handler(e) {
@@ -118,17 +129,26 @@ async function worker_handler(e) {
 		for (const p of worker_ports) {
 			activate_worker(p);
 		}
+
+		// Start the hypernode
+		start_hyper_node();
 	}
 
 	// Handle new datachannels:
-	if (datachannel_raw) {
-		data_channels.add(datachannel_raw);
-		console.log('datachannel', datachannel_raw);
-	}
-	if (datachannel && datachannel.type == 'created') {
-		const dc = new ProxiedChannel(e.target, datachannel);
-		data_channels.add(dc);
-		console.log('datachannel', dc);
+	if (datachannel) {
+		const { peer_fingerprint, channel_id, type, data } = datachannel;
+		if (type == 'open' && channel_id == 0) {
+			hyper_node.new_peer_connection(peer_fingerprint);
+		} else {
+			hyper_node.channel_openned(peer_fingerprint, channel_id);
+		}
+		if (type == 'message') {
+			if (typeof data == 'string') {
+				hyper_node.handle_text(peer_fingerprint, channel_id, data);
+			} else {
+				hyper_node.handle_binary(peer_fingerprint, channel_id, data);
+			}
+		}
 	}
 }
 
