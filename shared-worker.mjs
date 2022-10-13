@@ -5,6 +5,7 @@ console.log("Initializing the network-client shared worker");
 // So... I'm not going to check if the certificate has expired: The cert will be valid for 30 days so if the user hasn't closed their browser for 30 days without updating etc. then they deserve to get a broken website.
 // TODO: Just kidding... Fix the config to update the certificate or maybe refresh the iframes + shared worker?
 let config = false;
+let our_fingerprint = "";
 
 function api_handler(e) {
 	console.log("API message", e);
@@ -79,6 +80,9 @@ async function start_hyper_node() {
 		request_dc(peer_fingerprint, channel_id, config) {
 			const concrete = { label: config.label, ordered: config.ordered, maxPacketLifeTime: config.max_packet_life_time, maxRetransmits: config.max_retransmits, protocol: config.protocol}
 			this.send_dc_msg(peer_fingerprint, channel_id, { create: concrete })
+		},
+		local_fingerprint() {
+			return our_fingerprint;
 		}
 	});
 }
@@ -90,7 +94,7 @@ async function worker_handler(e) {
 
 	if (certificate) {
 		const { cert, fingerprint, bytes } = certificate;
-		// TODO: Store our own fingerprint (peer_id) and certificate bytes somewhere.
+		our_fingerprint = fingerprint;
 
 		// Send our rtcpeerconnection configuration to all our workers:
 		const certificates = [cert];

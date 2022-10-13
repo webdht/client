@@ -33,23 +33,6 @@ function getArrayU8FromWasm0(ptr, len) {
     return getUint8Memory0().subarray(ptr / 1, ptr / 1 + len);
 }
 
-let heap_next = heap.length;
-
-function addHeapObject(obj) {
-    if (heap_next === heap.length) heap.push(heap.length + 1);
-    const idx = heap_next;
-    heap_next = heap[idx];
-
-    heap[idx] = obj;
-    return idx;
-}
-/**
-* @param {any} ctx
-*/
-export function set_js_ctx(ctx) {
-    wasm.set_js_ctx(addHeapObject(ctx));
-}
-
 let WASM_VECTOR_LEN = 0;
 
 const cachedTextEncoder = new TextEncoder('utf-8');
@@ -104,6 +87,33 @@ function passStringToWasm0(arg, malloc, realloc) {
     WASM_VECTOR_LEN = offset;
     return ptr;
 }
+
+let cachedInt32Memory0 = new Int32Array();
+
+function getInt32Memory0() {
+    if (cachedInt32Memory0.byteLength === 0) {
+        cachedInt32Memory0 = new Int32Array(wasm.memory.buffer);
+    }
+    return cachedInt32Memory0;
+}
+
+let heap_next = heap.length;
+
+function addHeapObject(obj) {
+    if (heap_next === heap.length) heap.push(heap.length + 1);
+    const idx = heap_next;
+    heap_next = heap[idx];
+
+    heap[idx] = obj;
+    return idx;
+}
+/**
+* @param {any} ctx
+*/
+export function set_js_ctx(ctx) {
+    wasm.set_js_ctx(addHeapObject(ctx));
+}
+
 /**
 * @param {string} fingerprint
 */
@@ -182,15 +192,6 @@ export function handle_binary(peer_fingerprint, channel_id, msg) {
     const ptr1 = passArray8ToWasm0(msg, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
     wasm.handle_binary(ptr0, len0, channel_id, ptr1, len1);
-}
-
-let cachedInt32Memory0 = new Int32Array();
-
-function getInt32Memory0() {
-    if (cachedInt32Memory0.byteLength === 0) {
-        cachedInt32Memory0 = new Int32Array(wasm.memory.buffer);
-    }
-    return cachedInt32Memory0;
 }
 
 function isLikeNone(x) {
@@ -537,6 +538,13 @@ function getImports() {
     };
     imports.wbg.__wbg_requestdc_eebdde8c9296833e = function(arg0, arg1, arg2, arg3, arg4) {
         getObject(arg0).request_dc(getStringFromWasm0(arg1, arg2), arg3, DConfig.__wrap(arg4));
+    };
+    imports.wbg.__wbg_localfingerprint_2de418f14e7ee9b0 = function(arg0, arg1) {
+        const ret = getObject(arg1).local_fingerprint();
+        const ptr0 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        getInt32Memory0()[arg0 / 4 + 1] = len0;
+        getInt32Memory0()[arg0 / 4 + 0] = ptr0;
     };
     imports.wbg.__wbindgen_throw = function(arg0, arg1) {
         throw new Error(getStringFromWasm0(arg0, arg1));
