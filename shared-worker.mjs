@@ -125,7 +125,7 @@ async function worker_handler(e) {
 		const { peer_fingerprint, channel_id, type, data } = datachannel;
 		if (type == 'open' && channel_id == 0) {
 			hyper_node.new_peer_connection(peer_fingerprint);
-		} else {
+		} else if (type == 'open') {
 			hyper_node.channel_openned(peer_fingerprint, channel_id);
 		}
 		if (type == 'message') {

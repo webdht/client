@@ -119,17 +119,20 @@ function activate_datachannel(dc, peer_fingerprint, connection) {
 	// For everybody else, we just have to do message passing:
 	function event_handler(e) {
 		// Handle transfering arrayBuffers or blobs
-		const transfer = e.type == 'message' ? [e.data] : [];
+		let transfer = [];
+		if (e.data instanceof Uint8Array || e.data instanceof Blob) {
+			transfer.push(e.data);
+		}
 		if (dc.id !== 0 && (e.type == 'message' || e.type == 'open')) {
 			connection.users.add(dc.id);
 		}
 		const datachannel = {
 			peer_fingerprint, channel_id: dc.id,
 			type: e.type,
-			error: e.error ? {...e.error} : undefined,
 			data: e.data,
 			...e // For events this just transfers the isTrusted, but for custom events, it can include other data:
-		}
+		};
+		if (e.error) datachannel.error = e.error;
 		port.postMessage({ datachannel }, { transfer });
 	}
 	event_handler({
